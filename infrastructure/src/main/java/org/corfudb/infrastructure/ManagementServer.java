@@ -1,31 +1,28 @@
 package org.corfudb.infrastructure;
 
 import io.netty.channel.ChannelHandlerContext;
-
-import java.lang.invoke.MethodHandles;
-import java.time.Duration;
-import java.util.Map;
-
-import javax.annotation.Nonnull;
-
+import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-
 import org.corfudb.infrastructure.management.ClusterStateContext;
 import org.corfudb.infrastructure.management.ReconfigurationEventHandler;
 import org.corfudb.infrastructure.orchestrator.Orchestrator;
-
 import org.corfudb.protocols.wireprotocol.CorfuMsg;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.CorfuPayloadMsg;
 import org.corfudb.protocols.wireprotocol.DetectorMsg;
 import org.corfudb.protocols.wireprotocol.orchestrator.OrchestratorMsg;
-
 import org.corfudb.runtime.CorfuRuntime;
 import org.corfudb.runtime.exceptions.UnreachableClusterException;
 import org.corfudb.runtime.view.IReconfigurationHandlerPolicy;
 import org.corfudb.runtime.view.Layout;
+import org.corfudb.util.NodeLocator;
 import org.corfudb.util.concurrent.SingletonResource;
+
+import javax.annotation.Nonnull;
+import java.lang.invoke.MethodHandles;
+import java.time.Duration;
+import java.util.Map;
 
 
 /**
@@ -39,11 +36,12 @@ import org.corfudb.util.concurrent.SingletonResource;
 @Slf4j
 public class ManagementServer extends AbstractServer {
 
-    /**
-     * The options map.
-     */
-    private final Map<String, Object> opts;
     private final ServerContext serverContext;
+
+    /**
+     * The Management Server configuration.
+     */
+    private final ManagementServerConfig managementServerConfig;
 
     /**
      * A {@link SingletonResource} which provides a {@link CorfuRuntime}.
@@ -95,8 +93,9 @@ public class ManagementServer extends AbstractServer {
      */
     public ManagementServer(ServerContext serverContext) {
 
-        this.opts = serverContext.getServerConfig();
-        this.localEndpoint = this.opts.get("--address") + ":" + this.opts.get("<port>");
+        this.managementServerConfig = ManagementServerConfig.parse(serverContext.getServerConfig());
+
+        this.localEndpoint = NodeLocator.getLegacyEndpoint(managementServerConfig.getNodeLocator());
         this.serverContext = serverContext;
 
         this.failureHandlerPolicy = serverContext.getFailureHandlerPolicy();
@@ -136,7 +135,7 @@ public class ManagementServer extends AbstractServer {
     private final CorfuMsgHandler handler =
             CorfuMsgHandler.generateHandler(MethodHandles.lookup(), this);
 
-    private boolean checkBootstrap(CorfuMsg msg) {
+    private boolean isBootstrapped(CorfuMsg msg) {
         if (serverContext.getManagementLayout() == null) {
             log.warn("Received message but not bootstrapped! Message={}", msg);
             return false;
@@ -196,7 +195,7 @@ public class ManagementServer extends AbstractServer {
                                          ChannelHandlerContext ctx, IServerRouter r) {
 
         // This server has not been bootstrapped yet, ignore all requests.
-        if (!checkBootstrap(msg)) {
+        if (!isBootstrapped(msg)) {
             r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR));
             return;
         }
@@ -243,7 +242,7 @@ public class ManagementServer extends AbstractServer {
                                          ChannelHandlerContext ctx, IServerRouter r) {
 
         // This server has not been bootstrapped yet, ignore all requests.
-        if (!checkBootstrap(msg)) {
+        if (!isBootstrapped(msg)) {
             r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR));
             return;
         }
@@ -304,7 +303,7 @@ public class ManagementServer extends AbstractServer {
     @ServerHandler(type = CorfuMsgType.MANAGEMENT_LAYOUT_REQUEST)
     public void handleLayoutRequest(CorfuMsg msg, ChannelHandlerContext ctx, IServerRouter r) {
         // This server has not been bootstrapped yet, ignore all requests.
-        if (!checkBootstrap(msg)) {
+        if (!isBootstrapped(msg)) {
             r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR));
             return;
         }
@@ -324,5 +323,23 @@ public class ManagementServer extends AbstractServer {
 
         // Shut down the Corfu Runtime.
         corfuRuntime.cleanup(CorfuRuntime::shutdown);
+    }
+
+    /**
+     * Management Server configuration
+     */
+    @Builder
+    @Getter
+    public static class ManagementServerConfig {
+        private final NodeLocator nodeLocator;
+
+        public static ManagementServerConfig parse(Map<String, Object> opts) {
+            final String address = (String) opts.get("--address");
+            final Integer port = (Integer) opts.get("<port>");
+
+            return ManagementServerConfig.builder()
+                    .nodeLocator(NodeLocator.parseString(address + ":" + port))
+                    .build();
+        }
     }
 }
