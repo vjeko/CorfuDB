@@ -10,6 +10,8 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Builder;
+import lombok.Builder.Default;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -94,15 +96,14 @@ public class SequencerServer extends AbstractServer {
     /**
      * Our options.
      */
-    private final Map<String, Object> opts;
+    private final SequencerServerConfig config;
 
     /**
      * - {@link SequencerServer::globalLogTail}:
      * global log first available position (initially, 0).
      */
     @Getter
-    private final AtomicLong globalLogTail = new AtomicLong(Address
-            .getMinAddress());
+    private final AtomicLong globalLogTail = new AtomicLong(Address.getMinAddress());
 
     private long trimMark = Address.NON_ADDRESS;
 
@@ -111,8 +112,7 @@ public class SequencerServer extends AbstractServer {
      * per streams map to last issued global-log position. used for
      * backpointers.
      */
-    private final ConcurrentHashMap<UUID, Long> streamTailToGlobalTailMap = new
-            ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> streamTailToGlobalTailMap = new ConcurrentHashMap<>();
 
     /**
      * TX conflict-resolution information:
@@ -146,8 +146,7 @@ public class SequencerServer extends AbstractServer {
      * Handler for this server.
      */
     @Getter
-    private final CorfuMsgHandler handler =
-            CorfuMsgHandler.generateHandler(MethodHandles.lookup(), this);
+    private final CorfuMsgHandler handler = CorfuMsgHandler.generateHandler(MethodHandles.lookup(), this);
 
 
     @Getter
@@ -165,10 +164,12 @@ public class SequencerServer extends AbstractServer {
         return true;
     }
 
-    ThreadFactory threadFactory = new ServerThreadFactory("sequencer-",
-            new ServerThreadFactory.ExceptionHandler());
+    private final ThreadFactory threadFactory = new ServerThreadFactory(
+            "sequencer-",
+            new ServerThreadFactory.ExceptionHandler()
+    );
 
-    ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
 
     @Override
     public ExecutorService getExecutor() {
@@ -181,20 +182,17 @@ public class SequencerServer extends AbstractServer {
      */
     public SequencerServer(ServerContext serverContext) {
         this.serverContext = serverContext;
-        this.opts = serverContext.getServerConfig();
+        this.config = SequencerServerConfig.parse(serverContext.getServerConfig());
 
-        long initialToken = Utils.parseLong(opts.get("--initial-token"));
+        long initialToken = config.getInitialToken();
         if (Address.nonAddress(initialToken)) {
-            globalLogTail.set(0L);
+            globalLogTail.set(Address.getMinAddress());
         } else {
             globalLogTail.set(initialToken);
         }
 
-        long cacheSize = 250_000;
-        if (opts.get("--sequencer-cache-size") != null) {
-            cacheSize = Long.parseLong((String) opts.get("--sequencer-cache-size"));
+        long cacheSize = config.getSequencerCacheSize();
 
-        }
         conflictToGlobalTailCache = Caffeine.newBuilder()
                 .maximumSize(cacheSize)
                 .removalListener((String k, Long v, RemovalCause cause) -> {
@@ -247,8 +245,7 @@ public class SequencerServer extends AbstractServer {
      * @return Returns the type of token reponse based on whether the txn commits, or the abort
      *     cause.
      */
-    private TokenType txnCanCommit(TxResolutionInfo txInfo, /** Input. */
-                                  AtomicReference<byte[]> conflictKey /** Output. */) {
+    private TokenType txnCanCommit(TxResolutionInfo txInfo, AtomicReference<byte[]> conflictKey) {
         log.trace("Commit-req[{}]", txInfo);
         final Token txSnapshotTimestamp = txInfo.getSnapshotTimestamp();
 
@@ -365,8 +362,8 @@ public class SequencerServer extends AbstractServer {
             // streamTails
             token = new Token(sequencerEpoch, globalLogTail.get() - 1);
             streamTails = new ArrayList<>(streams.size());
-            for (int x = 0; x < streams.size(); x++) {
-                streamTails.add(streamTailToGlobalTailMap.getOrDefault(streams.get(x), Address.NON_EXIST));
+            for (UUID stream : streams) {
+                streamTails.add(streamTailToGlobalTailMap.getOrDefault(stream, Address.NON_EXIST));
             }
         }
 
@@ -617,11 +614,10 @@ public class SequencerServer extends AbstractServer {
         // update the cache of conflict parameters
         if (req.getTxnResolution() != null) {
             req.getTxnResolution().getWriteConflictParams().entrySet()
-                    .stream()
                     // for each entry
                     .forEach(txEntry ->
                             // and for each conflict param
-                            txEntry.getValue().stream().forEach(conflictParam ->
+                            txEntry.getValue().forEach(conflictParam ->
                                     // insert an entry with the new timestamp
                                     // using the hash code based on the param
                                     // and the stream id.
@@ -650,5 +646,26 @@ public class SequencerServer extends AbstractServer {
     @VisibleForTesting
     public Cache<String, Long> getConflictToGlobalTailCache() {
         return conflictToGlobalTailCache;
+    }
+
+    /**
+     * Sequencer server configuration
+     */
+    @Builder
+    @Getter
+    public static class SequencerServerConfig {
+        private static final long DEFAULT_CACHE_SIZE = 250000L;
+
+       private final long initialToken;
+       @Default
+       private final long sequencerCacheSize = DEFAULT_CACHE_SIZE;
+
+        public static SequencerServerConfig parse(Map<String, Object> opts) {
+            long cacheSize = Utils.parseLong(opts.getOrDefault("--sequencer-cache-size", DEFAULT_CACHE_SIZE));
+            return SequencerServerConfig.builder()
+                    .initialToken(Utils.parseLong(opts.get("--initial-token")))
+                    .sequencerCacheSize(cacheSize)
+                    .build();
+        }
     }
 }
