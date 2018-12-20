@@ -56,7 +56,7 @@ public abstract class AbstractServer {
      */
     public void handleMessage(CorfuMsg msg, ChannelHandlerContext ctx, IServerRouter r) {
         if (shutdown) {
-            log.warn("Server received {} but is shutdown.", msg.getMsgType().toString());
+            log.warn("Server received {} but is already shutdown.", msg.getMsgType().toString());
             return;
         }
 
