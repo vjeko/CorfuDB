@@ -8,6 +8,7 @@ import static org.corfudb.universe.scenario.fixture.Fixtures.TestFixtureConst.DE
 
 import org.corfudb.runtime.collections.CorfuTable;
 import org.corfudb.runtime.view.ClusterStatusReport;
+import org.corfudb.runtime.view.Layout;
 import org.corfudb.universe.GenericIntegrationTest;
 import org.corfudb.universe.group.cluster.CorfuCluster;
 import org.corfudb.universe.node.client.CorfuClient;
@@ -58,11 +59,15 @@ public class NodeUpAndPartitionedIT extends GenericIntegrationTest {
                 CorfuServer server1 = corfuCluster.getServerByIndex(1);
                 CorfuServer server2 = corfuCluster.getServerByIndex(2);
 
+                Layout layoutBeforeStop = corfuClient.getLayout();
+
                 // Stop server1
                 server1.stop(Duration.ofSeconds(10));
                 waitForUnresponsiveServersChange(size -> size == 1, corfuClient);
 
-                assertThat(corfuClient.getLayout().getUnresponsiveServers())
+                Layout layoutAfterStop = corfuClient.getLayout();
+                assertThat(layoutAfterStop.getUnresponsiveServers())
+                        .as("Layout before stop: %s, layout after stop: %s", layoutBeforeStop.asJSONString(), layoutAfterStop.asJSONString())
                         .containsExactly(server1.getEndpoint());
 
                 // Partition the responsive server0 from both unresponsive server1
@@ -72,9 +77,7 @@ public class NodeUpAndPartitionedIT extends GenericIntegrationTest {
                 // can still connect to two nodes, write to table so system down handler will not be triggered.
                 server0.disconnect(Arrays.asList(server1, server2));
                 server1.start();
-                waitForLayoutChange(layout -> layout.getUnresponsiveServers()
-                                                    .contains(server0.getEndpoint()),
-                                    corfuClient);
+                waitForLayoutChange(layout -> layout.getUnresponsiveServers().contains(server0.getEndpoint()), corfuClient);
 
                 // Verify server0 is unresponsive
                 assertThat(corfuClient.getLayout().getUnresponsiveServers())
