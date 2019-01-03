@@ -37,7 +37,7 @@ jobs:
     - ./mvnw -pl :test clean verify -T 1C -Pit -DskipTests -Dtest.travisBuild=true
     name: Integration Tests
   - script:
-    - ./mvnw -pl :universe clean verify -T 1C -Pit -Dtest=org.corfudb.universe.scenario.NodeUpAndPartitionedIT#nodeUpAndPartitionedTest
+    - ./mvnw -pl :universe clean verify -T 1C -Pit
     name: Testing Framework Tests
   - stage: code_quality
     name: Code Quality
