@@ -46,14 +46,20 @@ public class ClusterStatusReport {
         STABLE(0),
 
         /**
+         * The cluster is operational but one or several nodes are syncing in the background.
+         * i.e., (replica catch up)
+         */
+        DB_SYNCING(1),
+
+        /**
          * The cluster is operational but working with reduced redundancy.
          */
-        DEGRADED(1),
+        DEGRADED(2),
 
         /**
          * The cluster is not operational.
          */
-        UNAVAILABLE(2);
+        UNAVAILABLE(3);
 
         @Getter
         final int healthValue;
@@ -64,17 +70,70 @@ public class ClusterStatusReport {
     }
 
     /**
+     * Represents the connectivity status of this runtime to a node.
+     */
+    public enum ConnectivityStatus {
+        /**
+         * The node responds to pings from client.
+         */
+        RESPONSIVE(true),
+
+        /**
+         * The node does not respond to pings from client.
+         */
+        UNRESPONSIVE(false);
+
+        @Getter
+        final boolean ping;
+
+        ConnectivityStatus(boolean ping) {
+            this.ping = ping;
+        }
+    }
+
+    /**
+     * Represents the sources for cluster status computation.
+     * This aims to provide an indicative of status reliability.
+     */
+    public enum ClusterStatusReliability {
+        /**
+         * Cluster Status reported based on quorum.
+         */
+        STRONG_QUORUM,
+
+        /**
+         * Cluster Status reported based on highest layout in the system.
+         */
+        WEAK_SINGLE_NODE,
+
+        /**
+         * Unavailable
+         */
+        UNAVAILABLE
+    }
+
+    /**
      * Layout at which the report was generated.
      */
     private final Layout layout;
 
     /**
-     * Map of connectivity of the report generator client to the cluster nodes.
-     */
-    private final Map<String, NodeStatus> clientServerConnectivityStatusMap;
-
-    /**
      * Cluster health.
      */
     private final ClusterStatus clusterStatus;
+
+    /**
+     * Cluster Status Reliability (source of information)
+     */
+    private final ClusterStatusReliability clusterStatusReliability;
+
+    /**
+     * Individual Node Status (within cluster view).
+     */
+    private final Map<String, NodeStatus> clusterNodeStatusMap;
+
+    /**
+     * Map of connectivity of the report generator client to the cluster nodes.
+     */
+    private final Map<String, ConnectivityStatus> clientServerConnectivityStatusMap;
 }
